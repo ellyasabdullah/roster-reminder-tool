@@ -31,17 +31,25 @@
 
     <main class="flex-grow p-4 max-w-lg mx-auto w-full space-y-4">
         
-        <!-- Step 1: Authentication -->
+        <!-- Step 1: Authentication & List Selection -->
         <section id="auth-section" class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
             <div class="flex items-center gap-3 mb-4">
                 <span class="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">1</span>
                 <h2 class="font-bold text-lg">Google Account</h2>
             </div>
             <div id="auth-status" class="space-y-3">
-                <p id="status-text" class="text-slate-500 text-sm">Sign in to allow the app to add reminders to your Google Tasks.</p>
+                <p id="status-text" class="text-slate-500 text-sm">Sign in to connect to your Google Tasks.</p>
                 <button id="auth-btn" class="w-full bg-blue-600 active:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-sm">
                     Sign In with Google
                 </button>
+                
+                <!-- New Task List Selector -->
+                <div id="list-selector-container" class="hidden space-y-2 pt-2 animate-in fade-in duration-500">
+                    <label for="task-list-select" class="text-xs font-bold text-slate-400 uppercase tracking-wide">Save to list:</label>
+                    <select id="task-list-select" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Loading lists...</option>
+                    </select>
+                </div>
             </div>
         </section>
 
@@ -55,7 +63,7 @@
             <label for="file-input" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 active:bg-slate-100 cursor-pointer transition-colors">
                 <div class="flex flex-col items-center justify-center pt-5 pb-6">
                     <svg class="w-8 h-8 mb-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    <p class="text-sm text-slate-500 font-medium">Capture or select screenshot</p>
+                    <p class="text-sm text-slate-500 font-medium text-center px-4">Tap to capture or select roster screenshot</p>
                 </div>
                 <input id="file-input" type="file" accept="image/*" class="hidden" />
             </label>
@@ -78,7 +86,7 @@
             </div>
 
             <button id="sync-btn" class="w-full bg-green-600 active:bg-green-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg transition-transform active:scale-95">
-                Add to Google Tasks
+                Add to Selected List
             </button>
         </section>
 
@@ -89,7 +97,7 @@
         <div class="bg-white rounded-3xl p-8 max-w-xs w-full text-center shadow-2xl">
             <div id="modal-icon" class="text-5xl mb-4">✅</div>
             <h3 id="modal-title" class="text-xl font-bold mb-2">Success</h3>
-            <p id="modal-msg" class="text-slate-500 mb-8 leading-relaxed">Your reminders have been added to the Flights list.</p>
+            <p id="modal-msg" class="text-slate-500 mb-8 leading-relaxed">Your reminders have been added.</p>
             <button onclick="closeModal()" class="w-full bg-slate-900 text-white font-bold py-3 rounded-xl">Awesome</button>
         </div>
     </div>
@@ -97,18 +105,19 @@
     <script>
         // --- CONFIGURATION ---
         // PASTE YOUR CLIENT ID HERE
-        const CLIENT_ID = '428226096033-pqtp22fvecsq06lh85813d34rs434ihh.apps.googleusercontent.com'; 
+        const CLIENT_ID = ''; 
         const SCOPES = 'https://www.googleapis.com/auth/tasks';
         const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest"];
 
         let tokenClient;
         let gapiInited = false;
-        let flightsListId = null;
         let detectedTrips = [];
 
         // DOM References
         const authBtn = document.getElementById('auth-btn');
         const statusText = document.getElementById('status-text');
+        const listSelectorContainer = document.getElementById('list-selector-container');
+        const taskListSelect = document.getElementById('task-list-select');
         const uploadSection = document.getElementById('upload-section');
         const fileInput = document.getElementById('file-input');
         const processing = document.getElementById('processing');
@@ -140,15 +149,30 @@
         async function handleAuthSuccess() {
             statusText.innerHTML = "✅ Connected to Google Tasks";
             authBtn.classList.add('hidden');
+            listSelectorContainer.classList.remove('hidden');
             uploadSection.classList.remove('opacity-50', 'pointer-events-none');
             
-            // Find or identify 'Flights' list
+            // Fetch all Task Lists
             try {
                 const response = await gapi.client.tasks.tasklists.list();
-                const list = response.result.items.find(l => l.title === 'Flights');
-                flightsListId = list ? list.id : '@default';
+                const lists = response.result.items;
+                
+                taskListSelect.innerHTML = '';
+                if (lists && lists.length > 0) {
+                    lists.forEach(list => {
+                        const option = document.createElement('option');
+                        option.value = list.id;
+                        option.textContent = list.title;
+                        // Default to a list named "Flights" if it exists
+                        if (list.title === 'Flights') option.selected = true;
+                        taskListSelect.appendChild(option);
+                    });
+                } else {
+                    taskListSelect.innerHTML = '<option value="@default">Default List</option>';
+                }
             } catch (e) {
-                flightsListId = '@default';
+                console.error("Error fetching lists", e);
+                taskListSelect.innerHTML = '<option value="@default">Default List</option>';
             }
         }
 
@@ -177,7 +201,6 @@
         function extractData(text) {
             detectedTrips = [];
             const lines = text.split('\n');
-            // Regex for MH rosters: Date (DD-MMM), Flight (MH XXXX), Time (HH:MM)
             const pattern = /(\d{1,2}-[A-Z]{3}).*?(MH\s?\d+).*?(\d{2}:\d{2})/;
 
             lines.forEach(line => {
@@ -185,15 +208,11 @@
                 if (match) {
                     const [_, dateStr, flight, startTime] = match;
                     const year = new Date().getFullYear();
-                    
-                    // Attempt to parse the date safely
                     const dutyTime = new Date(`${dateStr} ${year} ${startTime}`);
                     
                     if (!isNaN(dutyTime.getTime())) {
-                        // -3 Hours calculation
                         const reminderTime = new Date(dutyTime.getTime() - (3 * 60 * 60 * 1000));
                         
-                        // REPLACED "Duty" with "Reporting" PER USER REQUEST
                         detectedTrips.push({
                             title: `Get ready for ${flight} (Reporting: ${startTime})`,
                             original: dutyTime,
@@ -234,13 +253,16 @@
 
         // --- TASK SYNC ---
         syncBtn.onclick = async () => {
+            const selectedListId = taskListSelect.value;
+            if (!selectedListId) return;
+
             syncBtn.disabled = true;
             syncBtn.innerText = "Syncing...";
 
             try {
                 for (const trip of detectedTrips) {
                     await gapi.client.tasks.tasks.insert({
-                        tasklist: flightsListId,
+                        tasklist: selectedListId,
                         resource: {
                             title: trip.title,
                             notes: `Automatically set 3 hours before reporting time (${trip.original.toLocaleString()})`,
@@ -248,14 +270,14 @@
                         }
                     });
                 }
-                showModal('Synced!', 'All reminders are now in your Flights list.', '✅');
+                showModal('Synced!', `All reminders added to the selected list.`, '✅');
                 resultsSection.classList.add('hidden');
                 fileInput.value = '';
             } catch (err) {
                 showModal('Sync Failed', 'Something went wrong while connecting to Google Tasks.', '❌');
             } finally {
                 syncBtn.disabled = false;
-                syncBtn.innerText = "Add to Google Tasks";
+                syncBtn.innerText = "Add to Selected List";
             }
         };
 
@@ -271,7 +293,6 @@
             document.getElementById('modal').classList.add('hidden');
         }
 
-        // Initialize Google APIs
         window.onload = () => {
             const gapiScript = document.createElement('script');
             gapiScript.src = "https://apis.google.com/js/api.js";
@@ -286,4 +307,3 @@
     </script>
 </body>
 </html>
-
