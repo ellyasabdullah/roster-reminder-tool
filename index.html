@@ -64,14 +64,15 @@
             <label for="file-input" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 active:bg-slate-100 cursor-pointer transition-colors">
                 <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
                     <svg class="w-8 h-8 mb-2 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    <p class="text-sm text-slate-500 font-medium">Capture or select roster screenshot</p>
+                    <p class="text-sm text-slate-500 font-medium font-bold">Upload iFlight Roster Image</p>
+                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Only KUL reporting trips will be shown</p>
                 </div>
                 <input id="file-input" type="file" accept="image/*" class="hidden" />
             </label>
 
             <div id="processing" class="hidden mt-4 p-3 bg-blue-50 rounded-lg flex items-center justify-center gap-3 text-blue-700 font-medium text-sm">
                 <div class="loader"></div>
-                Analyzing trips...
+                Analyzing your trips...
             </div>
         </section>
 
@@ -79,7 +80,7 @@
         <section id="results-section" class="hidden bg-white rounded-2xl p-5 shadow-sm border border-slate-200 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <div class="flex items-center gap-3 mb-4">
                 <span class="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span>
-                <h2 class="font-bold text-lg text-slate-800">Trips Found</h2>
+                <h2 class="font-bold text-lg text-slate-800">Confirm Reminders</h2>
             </div>
             
             <div id="trips-list" class="space-y-3 mb-6"></div>
@@ -221,7 +222,7 @@
                 const result = await Tesseract.recognize(file, 'eng');
                 extractData(result.data.text);
             } catch (err) {
-                showModal('Error', 'Reading failed.', '❌');
+                showModal('Error', 'Reading failed. Check image clarity.', '❌');
             } finally {
                 processing.classList.add('hidden');
             }
@@ -229,46 +230,56 @@
 
         function extractData(text) {
             detectedTrips = [];
-            const lines = text.split('\n').filter(l => l.trim().length > 0);
+            // Clean text to handle OCR quirks (e.g. spaces in K U L)
+            const cleanText = text.replace(/\s+/g, ' ');
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
             
             const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})/;
             const timeRegex = /(\d{2}:\d{2})/;
             const flightRegex = /(MH\s?\d+)/;
-            const airportRegex = /([A-Z]{3})/g;
+            const airportCodeRegex = /\b([A-Z]{3})\b/g;
 
             lines.forEach((line, index) => {
                 const dateMatch = line.match(dateRegex);
-                if (dateMatch) {
+                const flightMatch = line.match(flightRegex);
+                
+                // If a line has a date and a flight number...
+                if (dateMatch && flightMatch) {
                     const dateStr = dateMatch[0];
-                    const times = line.match(new RegExp(timeRegex, 'g'));
-                    const flightMatch = line.match(flightRegex);
-                    
-                    // Find all airport codes on this line
-                    const lineAirports = line.match(airportRegex) || [];
-                    
-                    // First sector criteria: Starts at KUL
-                    if (times && times.length > 0 && flightMatch && lineAirports[0] === 'KUL') {
-                        const reportingTime = times[0];
-                        const flight = flightMatch[0];
-                        const dest = lineAirports[1] || "???";
+                    const flight = flightMatch[0];
+                    const times = line.match(new RegExp(timeRegex, 'g')) || [];
+                    const airports = line.match(airportCodeRegex) || [];
+
+                    // CRITERIA: First sector MUST have KUL as the starting airport
+                    // In iFlight screenshots, the departure airport is usually the first code after flight/times
+                    const startsAtKUL = line.includes('KUL') && (airports[0] === 'KUL' || airports[1] === 'KUL');
+
+                    if (startsAtKUL && times.length > 0) {
+                        const reportingTime = times[0]; // First time is Duty Start
+                        const dest = airports.find(a => a !== 'KUL' && a !== 'NBA' && a !== 'FS') || "???";
                         
-                        // Look ahead to find return flight to KUL to build (KUL/DEST/KUL)
-                        let fullRoute = `KUL/${dest}`;
-                        for (let i = 1; i <= 4; i++) {
-                            if (lines[index + i]) {
-                                const nextAirports = lines[index + i].match(airportRegex) || [];
-                                if (nextAirports.includes('KUL')) {
-                                    // Found a return sector
-                                    if (!fullRoute.includes('/KUL')) fullRoute += '/KUL';
-                                    break;
-                                } else if (nextAirports.length > 1 && nextAirports[0] === dest) {
-                                    // Middle sector (e.g. KUL-MED then MED-JED)
-                                    if (!fullRoute.includes(nextAirports[1])) fullRoute += `/${nextAirports[1]}`;
-                                }
+                        // BUILD ROUTE: Look ahead to find the return to KUL
+                        let routeParts = ['KUL', dest];
+                        for (let i = 1; i <= 3; i++) {
+                            const nextLine = lines[index + i];
+                            if (!nextLine) break;
+                            
+                            const nextAirports = nextLine.match(airportCodeRegex) || [];
+                            const nextFlight = nextLine.match(flightRegex);
+                            
+                            if (nextAirports.includes('KUL')) {
+                                if (!routeParts.includes('KUL', 1)) routeParts.push('KUL');
+                                break;
+                            } else if (nextFlight && nextAirports.length > 1) {
+                                // Add intermediate stops if found
+                                const lastPort = nextAirports[nextAirports.length - 1];
+                                if (!routeParts.includes(lastPort)) routeParts.push(lastPort);
                             }
                         }
 
+                        const routeStr = `(${routeParts.join('/')})`;
                         const dutyTime = new Date(`${dateStr} ${reportingTime}`);
+
                         if (!isNaN(dutyTime.getTime())) {
                             const reminderTime = new Date(dutyTime.getTime() - (3 * 60 * 60 * 1000));
                             const key = `${dateStr}-${flight}`;
@@ -277,7 +288,7 @@
                                 detectedTrips.push({
                                     key: key,
                                     taskTitle: `Get ready for ${flight} (Reporting: ${reportingTime})`,
-                                    displayRoute: `(${fullRoute})`,
+                                    displayRoute: routeStr,
                                     date: dateStr,
                                     original: dutyTime,
                                     reminder: reminderTime,
@@ -290,18 +301,18 @@
             });
 
             if (detectedTrips.length > 0) renderList();
-            else showModal('No Trips Found', 'Ensure your roster shows reporting times and routes starting with KUL.', '🔍');
+            else showModal('No Trips Found', 'Ensure the roster shows reporting times and routes starting with KUL clearly.', '🔍');
         }
 
         function renderList() {
             tripsList.innerHTML = '';
             detectedTrips.forEach(trip => {
                 const item = document.createElement('div');
-                item.className = "p-4 bg-blue-50 border border-blue-100 rounded-xl flex justify-between items-center shadow-sm";
+                item.className = "p-4 bg-blue-50 border border-blue-100 rounded-xl flex justify-between items-center shadow-sm transition-all active:scale-95";
                 item.innerHTML = `
                     <div class="space-y-1">
                         <div class="font-bold text-blue-900 leading-tight">${trip.taskTitle}</div>
-                        <div class="text-[10px] font-black text-blue-600 bg-blue-100 px-2 py-0.5 rounded inline-block uppercase">${trip.displayRoute}</div>
+                        <div class="text-[10px] font-black text-blue-600 bg-blue-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.displayRoute}</div>
                         <div class="text-xs text-slate-500 font-medium pt-1">${trip.date}</div>
                     </div>
                     <div class="text-right ml-2 shrink-0">
@@ -326,16 +337,16 @@
                         tasklist: listId,
                         resource: {
                             title: trip.taskTitle,
-                            notes: `Route: ${trip.displayRoute}\nReporting at ${trip.startTime} on ${trip.date}.`,
+                            notes: `Route: ${trip.displayRoute}\nDuty starts at ${trip.startTime} on ${trip.date}.`,
                             due: trip.reminder.toISOString()
                         }
                     });
                 }
-                showModal('Synced!', `${detectedTrips.length} reminders added.`, '✅');
+                showModal('Synced!', `${detectedTrips.length} reminders added to Google Tasks.`, '✅');
                 resultsSection.classList.add('hidden');
                 fileInput.value = '';
             } catch (err) {
-                showModal('Sync Failed', 'Connection error.', '❌');
+                showModal('Sync Failed', 'Google API connection error.', '❌');
             } finally {
                 syncBtn.disabled = false;
                 syncBtn.innerText = "Add Reminders";
