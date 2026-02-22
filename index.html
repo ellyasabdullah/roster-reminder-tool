@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Flight Roster Sync</title>
+    <title>Get Ready - Flight Roster Sync</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
     <style>
@@ -22,8 +22,8 @@
 <body class="bg-slate-100 min-h-screen flex flex-col font-sans text-slate-900">
 
     <header class="bg-emerald-600 text-white p-6 shadow-md">
-        <h1 class="text-xl font-bold flex items-center gap-2">✈️ Roster Sync</h1>
-        <p class="text-emerald-100 text-sm mt-1">First Sector Reminders (3h lead time)</p>
+        <h1 class="text-xl font-bold flex items-center gap-2">✈️ Get Ready</h1>
+        <p class="text-emerald-100 text-sm mt-1">Preparation for Reporting Duty (+3hrs)</p>
     </header>
 
     <main class="flex-grow p-4 max-w-lg mx-auto w-full space-y-4">
@@ -58,13 +58,13 @@
         <section id="upload-section" class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 opacity-50 pointer-events-none transition-opacity">
             <div class="flex items-center gap-3 mb-4">
                 <span class="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">2</span>
-                <h2 class="font-bold text-lg text-slate-800">Upload Roster</h2>
+                <h2 class="font-bold text-lg text-slate-800">Upload Monthly Roster</h2>
             </div>
             
             <label for="file-input" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 active:bg-slate-100 cursor-pointer transition-colors">
                 <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
                     <svg class="w-8 h-8 mb-2 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    <p class="text-sm text-slate-500 font-medium font-bold">Upload Roster Screenshot</p>
+                    <p class="text-sm text-slate-500 font-medium font-bold">Upload Monthly Roster Screenshot</p>
                     <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Filtered for KUL origin trips</p>
                 </div>
                 <input id="file-input" type="file" accept="image/*" class="hidden" />
