@@ -102,7 +102,7 @@
     </div>
 
     <script>
-        const CLIENT_ID = '692805772462-uka3qj57pqklh4el8gm4lrejju0q6t0q.apps.googleusercontent.com'; // PASTE YOUR CLIENT ID HERE
+        const CLIENT_ID = ''; // PASTE YOUR CLIENT ID HERE
         const SCOPES = 'https://www.googleapis.com/auth/tasks';
         const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest"];
 
@@ -129,20 +129,33 @@
 
         function gapiLoaded() {
             gapi.load('client', async () => {
-                await gapi.client.init({ discoveryDocs: DISCOVERY_DOCS });
-                gapiInited = true;
+                try {
+                    await gapi.client.init({ discoveryDocs: DISCOVERY_DOCS });
+                    gapiInited = true;
+                    console.log("GAPI Initialized");
+                } catch (e) {
+                    console.error("GAPI Init Error", e);
+                }
             });
         }
 
         function gisLoaded() {
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: CLIENT_ID,
-                scope: SCOPES,
-                callback: async (resp) => {
-                    if (resp.error !== undefined) throw (resp);
-                    await handleAuthSuccess();
-                },
-            });
+            try {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: async (resp) => {
+                        if (resp.error !== undefined) {
+                            console.error("GIS Error", resp);
+                            return;
+                        }
+                        await handleAuthSuccess();
+                    },
+                });
+                console.log("GIS Initialized");
+            } catch (e) {
+                console.error("GIS Init Error", e);
+            }
         }
 
         async function handleAuthSuccess() {
@@ -150,10 +163,19 @@
             authBtn.classList.add('hidden');
             listSelectorContainer.classList.remove('hidden');
             uploadSection.classList.remove('opacity-50', 'pointer-events-none');
-            await fetchTaskLists();
+            
+            // Retry fetching lists up to 3 times if GAPI isn't quite ready
+            let retries = 3;
+            while(retries > 0) {
+                const success = await fetchTaskLists();
+                if (success) break;
+                retries--;
+                await new Promise(r => setTimeout(r, 1000));
+            }
         }
 
         async function fetchTaskLists() {
+            if (!gapiInited) return false;
             try {
                 const response = await gapi.client.tasks.tasklists.list();
                 const lists = response.result.items;
@@ -166,13 +188,22 @@
                         if (list.title === 'Flights') option.selected = true;
                         taskListSelect.appendChild(option);
                     });
+                    return true;
                 }
             } catch (e) {
+                console.error("Error fetching lists", e);
                 taskListSelect.innerHTML = '<option value="@default">Default List</option>';
             }
+            return false;
         }
 
-        authBtn.onclick = () => tokenClient.requestAccessToken();
+        authBtn.onclick = () => {
+            if (!tokenClient) {
+                showModal('Error', 'Google Sign-In is not initialized. Please refresh.', '❌');
+                return;
+            }
+            tokenClient.requestAccessToken();
+        };
 
         fileInput.onchange = async (e) => {
             const file = e.target.files[0];
@@ -183,7 +214,7 @@
                 const result = await Tesseract.recognize(file, 'eng');
                 extractData(result.data.text);
             } catch (err) {
-                showModal('Error', 'Reading failed.', '❌');
+                showModal('Error', 'Reading failed. Try a clearer screenshot.', '❌');
             } finally {
                 processing.classList.add('hidden');
             }
@@ -321,4 +352,3 @@
     </script>
 </body>
 </html>
-
