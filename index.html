@@ -26,7 +26,7 @@
         <h1 class="text-xl font-bold flex items-center gap-2">
             ✈️ Roster Sync
         </h1>
-        <p class="text-blue-100 text-sm mt-1">Automatic 3-hour lead time reminders</p>
+        <p class="text-blue-100 text-sm mt-1">First Sector Reminders (3h lead time)</p>
     </header>
 
     <main class="flex-grow p-4 max-w-lg mx-auto w-full space-y-4">
@@ -43,12 +43,16 @@
                     Sign In with Google
                 </button>
                 
-                <!-- New Task List Selector -->
                 <div id="list-selector-container" class="hidden space-y-2 pt-2 animate-in fade-in duration-500">
                     <label for="task-list-select" class="text-xs font-bold text-slate-400 uppercase tracking-wide">Save to list:</label>
-                    <select id="task-list-select" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="">Loading lists...</option>
-                    </select>
+                    <div class="relative">
+                        <select id="task-list-select" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none">
+                            <option value="">Loading lists...</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -61,16 +65,17 @@
             </div>
             
             <label for="file-input" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 active:bg-slate-100 cursor-pointer transition-colors">
-                <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                    <svg class="w-8 h-8 mb-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    <p class="text-sm text-slate-500 font-medium text-center px-4">Tap to capture or select roster screenshot</p>
+                <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
+                    <svg class="w-8 h-8 mb-2 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <p class="text-sm text-slate-500 font-medium">Capture screenshot of your roster</p>
+                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Only KUL origin flights will be synced</p>
                 </div>
                 <input id="file-input" type="file" accept="image/*" class="hidden" />
             </label>
 
             <div id="processing" class="hidden mt-4 p-3 bg-blue-50 rounded-lg flex items-center justify-center gap-3 text-blue-700 font-medium text-sm">
                 <div class="loader"></div>
-                Analyzing image...
+                Analyzing trips...
             </div>
         </section>
 
@@ -78,7 +83,7 @@
         <section id="results-section" class="hidden bg-white rounded-2xl p-5 shadow-sm border border-slate-200 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <div class="flex items-center gap-3 mb-4">
                 <span class="bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span>
-                <h2 class="font-bold text-lg">Review Reminders</h2>
+                <h2 class="font-bold text-lg">First Sectors Found</h2>
             </div>
             
             <div id="trips-list" class="space-y-3 mb-6">
@@ -86,25 +91,35 @@
             </div>
 
             <button id="sync-btn" class="w-full bg-green-600 active:bg-green-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg transition-transform active:scale-95">
-                Add to Selected List
+                Add Reminders
             </button>
         </section>
 
     </main>
 
-    <!-- Success/Error Modal -->
+    <!-- Modal for New List -->
+    <div id="list-modal" class="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm hidden">
+        <div class="bg-white rounded-3xl p-6 max-w-xs w-full shadow-2xl">
+            <h3 class="text-lg font-bold mb-4">New Task List</h3>
+            <input id="new-list-name" type="text" placeholder="List name" class="w-full p-3 border border-slate-200 rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none">
+            <div class="flex gap-2">
+                <button onclick="closeListModal()" class="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl">Cancel</button>
+                <button id="create-list-confirm" class="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedback Modal -->
     <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm hidden">
         <div class="bg-white rounded-3xl p-8 max-w-xs w-full text-center shadow-2xl">
             <div id="modal-icon" class="text-5xl mb-4">✅</div>
             <h3 id="modal-title" class="text-xl font-bold mb-2">Success</h3>
-            <p id="modal-msg" class="text-slate-500 mb-8 leading-relaxed">Your reminders have been added.</p>
-            <button onclick="closeModal()" class="w-full bg-slate-900 text-white font-bold py-3 rounded-xl">Awesome</button>
+            <p id="modal-msg" class="text-slate-500 mb-8 leading-relaxed"></p>
+            <button onclick="closeModal()" class="w-full bg-slate-900 text-white font-bold py-3 rounded-xl">Close</button>
         </div>
     </div>
 
     <script>
-        // --- CONFIGURATION ---
-        // PASTE YOUR CLIENT ID HERE
         const CLIENT_ID = '428226096033-pqtp22fvecsq06lh85813d34rs434ihh.apps.googleusercontent.com'; 
         const SCOPES = 'https://www.googleapis.com/auth/tasks';
         const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/tasks/v1/rest"];
@@ -113,7 +128,6 @@
         let gapiInited = false;
         let detectedTrips = [];
 
-        // DOM References
         const authBtn = document.getElementById('auth-btn');
         const statusText = document.getElementById('status-text');
         const listSelectorContainer = document.getElementById('list-selector-container');
@@ -124,13 +138,13 @@
         const resultsSection = document.getElementById('results-section');
         const tripsList = document.getElementById('trips-list');
         const syncBtn = document.getElementById('sync-btn');
+        const listModal = document.getElementById('list-modal');
+        const newListNameInput = document.getElementById('new-list-name');
+        const createListConfirm = document.getElementById('create-list-confirm');
 
-        // --- GOOGLE IDENTITY SERVICES ---
         function gapiLoaded() {
             gapi.load('client', async () => {
-                await gapi.client.init({
-                    discoveryDocs: DISCOVERY_DOCS,
-                });
+                await gapi.client.init({ discoveryDocs: DISCOVERY_DOCS });
                 gapiInited = true;
             });
         }
@@ -151,48 +165,70 @@
             authBtn.classList.add('hidden');
             listSelectorContainer.classList.remove('hidden');
             uploadSection.classList.remove('opacity-50', 'pointer-events-none');
-            
-            // Fetch all Task Lists
+            await fetchTaskLists();
+        }
+
+        async function fetchTaskLists(selectedId = null) {
             try {
                 const response = await gapi.client.tasks.tasklists.list();
                 const lists = response.result.items;
-                
                 taskListSelect.innerHTML = '';
                 if (lists && lists.length > 0) {
                     lists.forEach(list => {
                         const option = document.createElement('option');
                         option.value = list.id;
                         option.textContent = list.title;
-                        // Default to a list named "Flights" if it exists
-                        if (list.title === 'Flights') option.selected = true;
+                        if (selectedId && list.id === selectedId) option.selected = true;
+                        else if (!selectedId && list.title === 'Flights') option.selected = true;
                         taskListSelect.appendChild(option);
                     });
-                } else {
-                    taskListSelect.innerHTML = '<option value="@default">Default List</option>';
                 }
+                const createOption = document.createElement('option');
+                createOption.value = "CREATE_NEW";
+                createOption.textContent = "+ Create New List...";
+                taskListSelect.appendChild(createOption);
             } catch (e) {
-                console.error("Error fetching lists", e);
                 taskListSelect.innerHTML = '<option value="@default">Default List</option>';
             }
         }
 
-        authBtn.onclick = () => {
-            if (tokenClient) tokenClient.requestAccessToken();
+        authBtn.onclick = () => tokenClient.requestAccessToken();
+
+        taskListSelect.onchange = () => {
+            if (taskListSelect.value === "CREATE_NEW") {
+                listModal.classList.remove('hidden');
+                newListNameInput.focus();
+            }
         };
 
-        // --- OCR & PARSING ---
+        function closeListModal() {
+            listModal.classList.add('hidden');
+            newListNameInput.value = '';
+            if (taskListSelect.value === "CREATE_NEW") taskListSelect.selectedIndex = 0;
+        }
+
+        createListConfirm.onclick = async () => {
+            const name = newListNameInput.value.trim();
+            if (!name) return;
+            try {
+                const resp = await gapi.client.tasks.tasklists.insert({ resource: { title: name } });
+                await fetchTaskLists(resp.result.id);
+                closeListModal();
+            } catch (err) {
+                showModal('Error', 'Could not create list.', '❌');
+            }
+        };
+
         fileInput.onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-
             processing.classList.remove('hidden');
             resultsSection.classList.add('hidden');
-
             try {
                 const result = await Tesseract.recognize(file, 'eng');
                 extractData(result.data.text);
             } catch (err) {
-                showModal('Error', 'Could not read image. Try a clearer screenshot.', '❌');
+                showModal('Error', 'Reading failed.', '❌');
             } finally {
                 processing.classList.add('hidden');
             }
@@ -201,47 +237,52 @@
         function extractData(text) {
             detectedTrips = [];
             const lines = text.split('\n');
-            const pattern = /(\d{1,2}-[A-Z]{3}).*?(MH\s?\d+).*?(\d{2}:\d{2})/;
+            
+            // Refined Regex to capture: Date, Flight, Origin, Dest, Time
+            // Example match: "21-FEB MH123 KUL SIN 15:55" or "21-FEB MH 123 KUL-SIN 15:55"
+            const pattern = /(\d{1,2}-[A-Z]{3}).*?(MH\s?\d+).*?([A-Z]{3})[\s\-]*([A-Z]{3}).*?(\d{2}:\d{2})/;
 
             lines.forEach(line => {
                 const match = line.match(pattern);
                 if (match) {
-                    const [_, dateStr, flight, startTime] = match;
-                    const year = new Date().getFullYear();
-                    const dutyTime = new Date(`${dateStr} ${year} ${startTime}`);
+                    const [_, dateStr, flight, origin, dest, startTime] = match;
                     
-                    if (!isNaN(dutyTime.getTime())) {
-                        const reminderTime = new Date(dutyTime.getTime() - (3 * 60 * 60 * 1000));
+                    // CRITICAL: Filter for FIRST SECTOR ONLY (Originated at KUL)
+                    if (origin.toUpperCase() === 'KUL') {
+                        const year = new Date().getFullYear();
+                        const dutyTime = new Date(`${dateStr} ${year} ${startTime}`);
                         
-                        detectedTrips.push({
-                            title: `Get ready for ${flight} (Reporting: ${startTime})`,
-                            original: dutyTime,
-                            reminder: reminderTime,
-                            startTime: startTime
-                        });
+                        if (!isNaN(dutyTime.getTime())) {
+                            const reminderTime = new Date(dutyTime.getTime() - (3 * 60 * 60 * 1000));
+                            detectedTrips.push({
+                                title: `Get ready for ${flight} (Reporting: ${startTime})`,
+                                route: `${origin}-${dest}`,
+                                original: dutyTime,
+                                reminder: reminderTime,
+                                startTime: startTime
+                            });
+                        }
                     }
                 }
             });
 
-            if (detectedTrips.length > 0) {
-                renderList();
-            } else {
-                showModal('Not Found', 'No flight data detected. Please ensure dates and times are visible.', '🔍');
-            }
+            if (detectedTrips.length > 0) renderList();
+            else showModal('No Trips Found', 'Ensure the roster shows route (e.g. KUL-SIN). Only flights starting at KUL are listed.', '🔍');
         }
 
         function renderList() {
             tripsList.innerHTML = '';
             detectedTrips.forEach(trip => {
                 const item = document.createElement('div');
-                item.className = "p-4 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center";
+                item.className = "p-4 bg-blue-50 border border-blue-100 rounded-xl flex justify-between items-center shadow-sm";
                 item.innerHTML = `
                     <div class="space-y-1">
-                        <div class="font-bold text-slate-800">${trip.title}</div>
-                        <div class="text-xs text-slate-500 font-medium">Reporting Time: ${trip.startTime} (${trip.original.toLocaleDateString()})</div>
+                        <div class="font-bold text-blue-900">${trip.title}</div>
+                        <div class="text-[10px] font-black text-blue-600 bg-blue-100 px-2 py-0.5 rounded inline-block uppercase">${trip.route} (Sector 1)</div>
+                        <div class="text-xs text-slate-500 font-medium pt-1">${trip.original.toLocaleDateString()} at ${trip.startTime}</div>
                     </div>
                     <div class="text-right">
-                        <div class="text-xs text-blue-600 font-bold uppercase tracking-wider">Reminder</div>
+                        <div class="text-[10px] text-slate-400 font-bold uppercase">Reminder</div>
                         <div class="text-sm font-black text-slate-900">${trip.reminder.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                     </div>
                 `;
@@ -251,37 +292,33 @@
             resultsSection.scrollIntoView({ behavior: 'smooth' });
         }
 
-        // --- TASK SYNC ---
         syncBtn.onclick = async () => {
-            const selectedListId = taskListSelect.value;
-            if (!selectedListId) return;
-
+            const listId = taskListSelect.value;
+            if (!listId || listId === "CREATE_NEW") return;
             syncBtn.disabled = true;
             syncBtn.innerText = "Syncing...";
-
             try {
                 for (const trip of detectedTrips) {
                     await gapi.client.tasks.tasks.insert({
-                        tasklist: selectedListId,
+                        tasklist: listId,
                         resource: {
                             title: trip.title,
-                            notes: `Automatically set 3 hours before reporting time (${trip.original.toLocaleString()})`,
+                            notes: `Sector 1 of trip: ${trip.route}. Reporting at ${trip.startTime}.`,
                             due: trip.reminder.toISOString()
                         }
                     });
                 }
-                showModal('Synced!', `All reminders added to the selected list.`, '✅');
+                showModal('Synced!', `${detectedTrips.length} reminders added to Google Tasks.`, '✅');
                 resultsSection.classList.add('hidden');
                 fileInput.value = '';
             } catch (err) {
-                showModal('Sync Failed', 'Something went wrong while connecting to Google Tasks.', '❌');
+                showModal('Sync Failed', 'Connection error.', '❌');
             } finally {
                 syncBtn.disabled = false;
-                syncBtn.innerText = "Add to Selected List";
+                syncBtn.innerText = "Add Reminders";
             }
         };
 
-        // --- HELPERS ---
         function showModal(title, msg, icon) {
             document.getElementById('modal-title').innerText = title;
             document.getElementById('modal-msg').innerText = msg;
@@ -289,22 +326,12 @@
             document.getElementById('modal').classList.remove('hidden');
         }
 
-        function closeModal() {
-            document.getElementById('modal').classList.add('hidden');
-        }
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
 
         window.onload = () => {
-            const gapiScript = document.createElement('script');
-            gapiScript.src = "https://apis.google.com/js/api.js";
-            gapiScript.onload = gapiLoaded;
-            document.head.appendChild(gapiScript);
-
-            const gisScript = document.createElement('script');
-            gisScript.src = "https://accounts.google.com/gsi/client";
-            gisScript.onload = gisLoaded;
-            document.head.appendChild(gisScript);
+            const g1 = document.createElement('script'); g1.src = "https://apis.google.com/js/api.js"; g1.onload = gapiLoaded; document.head.appendChild(g1);
+            const g2 = document.createElement('script'); g2.src = "https://accounts.google.com/gsi/client"; g2.onload = gisLoaded; document.head.appendChild(g2);
         };
     </script>
 </body>
 </html>
-
