@@ -19,7 +19,7 @@
         body { -webkit-tap-highlight-color: transparent; }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen flex flex-col font-sans text-slate-900">
+<body class="bg-slate-100 min-h-screen flex flex-col font-sans text-slate-900">
 
     <header class="bg-emerald-600 text-white p-6 shadow-md">
         <h1 class="text-xl font-bold flex items-center gap-2">✈️ Get Ready</h1>
@@ -28,7 +28,6 @@
 
     <main class="flex-grow p-4 max-w-lg mx-auto w-full space-y-4">
         
-        <!-- Step 1: Authentication -->
         <section id="auth-section" class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200">
             <div class="flex items-center gap-3 mb-4">
                 <span class="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">1</span>
@@ -54,7 +53,6 @@
             </div>
         </section>
 
-        <!-- Step 2: Image Input -->
         <section id="upload-section" class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 opacity-50 pointer-events-none transition-opacity">
             <div class="flex items-center gap-3 mb-4">
                 <span class="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">2</span>
@@ -64,8 +62,8 @@
             <label for="file-input" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 active:bg-slate-100 cursor-pointer transition-colors">
                 <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
                     <svg class="w-8 h-8 mb-2 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    <p class="text-sm text-slate-500 font-medium font-bold">Capture or select Monthly view</p>
-                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Groups multiple sectors into Trips/Daily flights</p>
+                    <p class="text-sm text-slate-500 font-medium font-bold">Upload Monthly Roster Screenshot</p>
+                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider italic">Cache cleared after every submission</p>
                 </div>
                 <input id="file-input" type="file" accept="image/*" class="hidden" />
             </label>
@@ -76,7 +74,6 @@
             </div>
         </section>
 
-        <!-- Step 3: Review -->
         <section id="results-section" class="hidden bg-white rounded-2xl p-5 shadow-sm border border-slate-200 animate-in fade-in slide-in-from-bottom-4 duration-300">
             <div class="flex items-center gap-3 mb-4">
                 <span class="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span>
@@ -134,8 +131,8 @@
         const newCalNameInput = document.getElementById('new-cal-name');
         const createCalConfirm = document.getElementById('create-cal-confirm');
 
-        // Removed KUA from exclusions. Added 7M8, 738, etc.
-        const EXCLUDE_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'NBA', 'FS', 'OP', 'PS', 'DO', 'D', '333', '332', '73H', 'A330', 'B738', '7M8', '738'];
+        // Note: KUA is NOT in exclusions so it is recognized as a valid airport.
+        const EXCLUDE_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN', 'NBA', 'FS', 'OP', 'PS', 'DO', 'D', '333', '332', '73H', 'A330', 'B738', '7M8', '738', 'FLT', 'STBY'];
 
         function gapiLoaded() {
             gapi.load('client', async () => {
@@ -217,6 +214,7 @@
             const file = e.target.files[0];
             if (!file) return;
 
+            // Reset cache and UI
             detectedTrips = [];
             tripsList.innerHTML = '';
             resultsSection.classList.add('hidden');
@@ -235,112 +233,126 @@
 
         function extractData(text) {
             detectedTrips = [];
-            const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 10);
+            const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+            
             const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})/;
-            const timeRegex = /\b(\d{2}:\d{2})\b/g;
+            const timeRegex = /\b(\d{2}:\d{2})\b/;
             const flightRegex = /(MH\s?\d+)/;
             const airportRegex = /\b([A-Z]{3})\b/g;
 
-            let allSectors = [];
-            
-            // 1. Precise Sector Extraction (Handling multi-line arrivals)
-            for (let idx = 0; idx < rawLines.length; idx++) {
-                let line = rawLines[idx];
-                const dateMatch = line.match(dateRegex);
-                const flightMatch = line.match(flightRegex);
+            // 1. First Pass: Create a clean chronological list of all valid flights
+            let allFlights = [];
+            let currentDate = null;
+
+            for (let i = 0; i < rawLines.length; i++) {
+                let line = rawLines[i];
                 
-                if (dateMatch && flightMatch) {
-                    let startDate = dateMatch[0];
-                    let endDate = startDate;
-                    let times = line.match(timeRegex) || [];
-                    let ports = (line.match(airportRegex) || []).filter(c => !EXCLUDE_CODES.includes(c.toUpperCase()));
-                    
-                    // If destination is missing from current line, look ahead 1-2 lines
-                    if (ports.length === 1) {
-                        for (let k = 1; k <= 2; k++) {
-                            if (rawLines[idx + k]) {
-                                if (rawLines[idx + k].match(flightRegex)) break; // Stop if new flight
-                                let nextPorts = (rawLines[idx + k].match(airportRegex) || []).filter(c => !EXCLUDE_CODES.includes(c.toUpperCase()));
-                                if (nextPorts.length > 0) {
-                                    ports.push(nextPorts[0]); // Found destination!
-                                    const nextDateMatch = rawLines[idx + k].match(dateRegex);
-                                    if (nextDateMatch) endDate = nextDateMatch[0]; // Capture correct arrival date
-                                    break;
-                                }
-                            }
+                // Track date across lines
+                let dateMatch = line.match(dateRegex);
+                if (dateMatch) currentDate = dateMatch[0];
+
+                let flightMatch = line.match(flightRegex);
+                if (flightMatch && currentDate) {
+                    let flightNum = flightMatch[0];
+                    let ports = [];
+                    let reportingTime = null;
+
+                    // Gather data from current line and the next 2 lines to catch wrapped data
+                    for (let j = i; j <= i + 2 && j < rawLines.length; j++) {
+                        let lookLine = rawLines[j];
+                        
+                        // Break if we bleed into the next flight or date
+                        if (j > i && (lookLine.match(flightRegex) || lookLine.match(dateRegex))) break;
+
+                        if (!reportingTime) {
+                            let tMatch = lookLine.match(timeRegex);
+                            if (tMatch) reportingTime = tMatch[0];
                         }
+
+                        let pMatches = (lookLine.match(airportRegex) || []).filter(c => !EXCLUDE_CODES.includes(c.toUpperCase()));
+                        ports.push(...pMatches);
                     }
 
-                    if (ports.length >= 1 && times.length > 0) {
-                        allSectors.push({
-                            date: startDate,
-                            endDate: endDate,
-                            flight: flightMatch[0],
-                            origin: ports[0],
-                            dest: ports.length > 1 ? ports[1] : 'KUL',
-                            reporting: times[0],
-                            dt: new Date(`${startDate} ${times[0]}`)
+                    if (ports.length > 0 && reportingTime) {
+                        allFlights.push({
+                            date: currentDate,
+                            flight: flightNum,
+                            ports: ports,
+                            time: reportingTime,
+                            dt: new Date(currentDate.replace(/-/g, ' ') + ' ' + reportingTime)
                         });
                     }
                 }
             }
 
-            // 2. Sort chronologically
-            allSectors.sort((a, b) => a.dt - b.dt);
+            // Clean up missing destinations by looking ahead
+            for (let i = 0; i < allFlights.length; i++) {
+                let f = allFlights[i];
+                f.origin = f.ports[0];
+                if (f.ports.length > 1) {
+                    f.dest = f.ports[1];
+                } else {
+                    f.dest = (allFlights[i+1]) ? allFlights[i+1].ports[0] : 'KUL';
+                }
+            }
 
-            // 3. Sequence Grouping Logic
+            // Ensure chronologically sorted
+            allFlights.sort((a, b) => a.dt - b.dt);
+
+            // 2. Second Pass: Group flights according to Trip & Daily Flight rules
             let i = 0;
-            while (i < allSectors.length) {
-                // Trip/Daily Sequence ALWAYS starts at KUL
-                if (allSectors[i].origin === 'KUL') {
-                    const firstSector = allSectors[i];
-                    let sequence = [firstSector];
+            while (i < allFlights.length) {
+                // Sequences only begin at KUL
+                if (allFlights[i].origin === 'KUL') {
+                    let firstFlight = allFlights[i];
+                    let seq = [firstFlight];
                     let j = i + 1;
 
-                    // Group connected sectors until back at KUL and NO MORE flights on that date
-                    while (j < allSectors.length) {
-                        const s = allSectors[j];
-                        sequence.push(s);
+                    // Continue consuming flights until duty period ends
+                    while (j < allFlights.length) {
+                        let currentFlight = allFlights[j];
+                        seq.push(currentFlight);
 
-                        if (s.dest === 'KUL') {
-                            const nextFlight = allSectors[j+1];
-                            const sameDayNext = nextFlight && nextFlight.date === s.endDate;
+                        // If we returned to KUL, check if the duty continues on the same day
+                        if (currentFlight.dest === 'KUL') {
+                            let nextFlight = allFlights[j+1];
                             
-                            // If no more same-day flights, the duty period is over
-                            if (!sameDayNext) break;
+                            // Break the loop if there are no more flights OR the next flight is on a DIFFERENT day
+                            if (!nextFlight || nextFlight.date !== currentFlight.date) {
+                                break;
+                            }
                         }
                         j++;
                     }
 
-                    const lastSector = sequence[sequence.length - 1];
-                    const startDt = new Date(firstSector.date.split('-').reverse().join('-'));
-                    const endDt = new Date(lastSector.endDate.split('-').reverse().join('-'));
-                    const diffDays = Math.round(Math.abs((endDt - startDt) / (1000 * 3600 * 24))) + 1;
-
-                    // Build unique route trail
-                    let routeNodes = [firstSector.origin];
-                    sequence.forEach(s => {
+                    let lastFlight = seq[seq.length - 1];
+                    
+                    // Build unique route array (KUL / A / B / KUL)
+                    let routeNodes = [firstFlight.origin];
+                    seq.forEach(s => {
                         if (s.dest !== routeNodes[routeNodes.length - 1]) routeNodes.push(s.dest);
                     });
 
-                    const typeLabel = diffDays > 1 ? `(${diffDays} Days Trip)` : "(Daily Flight)";
-                    const dateDisplay = diffDays > 1 ? `${firstSector.date} to ${lastSector.endDate}` : firstSector.date;
-                    const reminderStart = new Date(firstSector.dt.getTime() - (3 * 3600000));
+                    // Calculate Duration Difference
+                    let d1 = new Date(firstFlight.date.replace(/-/g, ' '));
+                    let d2 = new Date(lastFlight.date.replace(/-/g, ' '));
+                    let diffDays = Math.round(Math.abs((d2 - d1) / (1000 * 3600 * 24))) + 1;
 
+                    let typeLabel = diffDays > 1 ? `(${diffDays} Days Trip)` : "(Daily Flight)";
+                    
                     detectedTrips.push({
-                        key: `${firstSector.date}-${firstSector.flight}-${i}`,
-                        title: `${firstSector.flight} (Reporting: ${firstSector.reporting})`,
+                        key: `${firstFlight.date}-${firstFlight.flight}-${i}`,
+                        title: `${firstFlight.flight} (Reporting: ${firstFlight.time})`,
                         route: routeNodes.join(' / '),
                         type: typeLabel,
-                        displayDate: dateDisplay,
-                        calDate: firstSector.date,
-                        start: reminderStart,
-                        end: firstSector.dt // Ends at reporting time (3h duration)
+                        date: firstFlight.date,
+                        start: new Date(firstFlight.dt.getTime() - (3 * 3600000)), // 3h prior
+                        end: firstFlight.dt // Ends at reporting time
                     });
 
-                    i = j + 1; // Move past grouped sequence
+                    i = j + 1; // Move past the grouped sequence
                 } else {
-                    i++; // Skip sectors that start downroute
+                    i++; // Skip sectors starting downroute
                 }
             }
 
@@ -366,7 +378,7 @@
                             <div class="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.route}</div>
                             <span class="text-[9px] font-bold text-emerald-500 italic">${trip.type}</span>
                         </div>
-                        <div class="text-xs text-slate-500 font-medium pt-1">${trip.displayDate}</div>
+                        <div class="text-xs text-slate-500 font-medium pt-1">${trip.date}</div>
                     </div>
                     <div class="text-right shrink-0 pr-8">
                         <div class="text-[10px] text-slate-400 font-bold uppercase">Prep Time</div>
@@ -392,7 +404,7 @@
                         calendarId: calId,
                         resource: {
                             summary: trip.title,
-                            description: `Route: ${trip.route}\n${trip.calDate}`,
+                            description: `Route: ${trip.route}\n${trip.date}`,
                             start: { dateTime: trip.start.toISOString() },
                             end: { dateTime: trip.end.toISOString() },
                             reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] }
