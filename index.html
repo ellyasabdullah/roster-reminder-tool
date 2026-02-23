@@ -272,7 +272,8 @@
                     const times = line.match(new RegExp(timeRegex, 'g')) || [];
                     let airports = (line.match(airportRegex) || []).filter(code => !EXCLUDE_CODES.includes(code.toUpperCase()));
 
-                    if (airports[0] === 'KUL' && times.length > 0) {
+                    const startsAtKUL = airports.includes('KUL');
+if (startsAtKUL && times.length > 0) {
                         const reportingTime = times[0];
                         const dest = airports[1] || "???";
                         
@@ -402,3 +403,4 @@
     </script>
 </body>
 </html>
+
