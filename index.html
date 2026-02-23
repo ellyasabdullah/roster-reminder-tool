@@ -64,12 +64,335 @@
             <label for="file-input" class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 active:bg-slate-100 cursor-pointer transition-colors">
                 <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
                     <svg class="w-8 h-8 mb-2 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    <p class="text-sm text-slate-500 font-medium font-bold">Upload Monthly Roster Screenshot</p>
-                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Identifies first sectors of trips/daily flights</p>
+                    <p class="text-sm text-slate-500 font-medium font-bold text-center">Capture or select Monthly view</p>
+                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Groups multiple sectors into Trips/Daily flights</p>
                 </div>
                 <input id="file-input" type="file" accept="image/*" class="hidden" />
             </label>
 
+            <div id="processing" class="hidden mt-4 p-3 bg-emerald-50 rounded-lg flex items-center justify-center gap-3 text-emerald-700 font-medium text-sm">
+                <div class="loader"></div>
+                Analyzing Flight Patterns...
+            </div>
+        </section>
+
+        <!-- Step 3: Review & Sync -->
+        <section id="results-section" class="hidden bg-white rounded-2xl p-5 shadow-sm border border-slate-200 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div class="flex items-center gap-3 mb-4">
+                <span class="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span>
+                <h2 class="font-bold text-lg text-slate-800">Confirm Reminders</h2>
+            </div>
+            
+            <div id="trips-list" class="space-y-3 mb-6"></div>
+
+            <button id="sync-btn" class="w-full bg-green-600 active:bg-green-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg transition-transform active:scale-95">
+                Add Reminders
+            </button>
+        </section>
+    </main>
+
+    <!-- Modal for New Calendar -->
+    <div id="cal-modal" class="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm hidden">
+        <div class="bg-white rounded-3xl p-6 max-w-xs w-full shadow-2xl">
+            <h3 class="text-lg font-bold mb-4">New Calendar</h3>
+            <input id="new-cal-name" type="text" placeholder="e.g. Flights 2026" class="w-full p-3 border border-slate-200 rounded-xl mb-4 focus:ring-2 focus:ring-emerald-500 outline-none">
+            <div class="flex gap-2">
+                <button onclick="closeCalModal()" class="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl">Cancel</button>
+                <button id="create-cal-confirm" class="flex-1 bg-emerald-600 text-white font-bold py-3 rounded-xl">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success/Error Modal -->
+    <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm hidden">
+        <div class="bg-white rounded-3xl p-8 max-w-xs w-full text-center shadow-2xl">
+            <div id="modal-icon" class="text-5xl mb-4">✅</div>
+            <h3 id="modal-title" class="text-xl font-bold mb-2">Success</h3>
+            <p id="modal-msg" class="text-slate-500 mb-8 leading-relaxed"></p>
+            <button onclick="closeModal()" class="w-full bg-slate-900 text-white font-bold py-3 rounded-xl">Close</button>
+        </div>
+    </div>
+
+    <script>
+        const CLIENT_ID = '692805772462-uka3qj57pqklh4el8gm4lrejju0q6t0q.apps.googleusercontent.com';
+        const SCOPES = 'https://www.googleapis.com/auth/calendar';
+        const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"];
+
+        let tokenClient;
+        let gapiInited = false;
+        let detectedTrips = [];
+
+        const authBtn = document.getElementById('auth-btn');
+        const statusText = document.getElementById('status-text');
+        const listSelectorContainer = document.getElementById('list-selector-container');
+        const calendarSelect = document.getElementById('calendar-select');
+        const uploadSection = document.getElementById('upload-section');
+        const fileInput = document.getElementById('file-input');
+        const processing = document.getElementById('processing');
+        const resultsSection = document.getElementById('results-section');
+        const tripsList = document.getElementById('trips-list');
+        const syncBtn = document.getElementById('sync-btn');
+        const calModal = document.getElementById('cal-modal');
+        const newCalNameInput = document.getElementById('new-cal-name');
+        const createCalConfirm = document.getElementById('create-cal-confirm');
+
+        const EXCLUDE_CODES = [
+            'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+            'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN',
+            'NBA', 'FS', 'OP', 'PS', 'DO', 'D', 'KUA', '333', '332', '73H'
+        ];
+
+        function gapiLoaded() {
+            gapi.load('client', async () => {
+                try {
+                    await gapi.client.init({ discoveryDocs: DISCOVERY_DOCS });
+                    gapiInited = true;
+                } catch (e) { console.error(e); }
+            });
+        }
+
+        function gisLoaded() {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID, scope: SCOPES,
+                callback: async (resp) => {
+                    if (resp.error !== undefined) return;
+                    if (gapi.client) gapi.client.setToken(resp);
+                    await handleAuthSuccess();
+                },
+            });
+        }
+
+        async function handleAuthSuccess() {
+            statusText.innerHTML = "✅ Connected to Google Calendar";
+            authBtn.classList.add('hidden');
+            listSelectorContainer.classList.remove('hidden');
+            uploadSection.classList.remove('opacity-50', 'pointer-events-none');
+            await fetchCalendars();
+        }
+
+        async function fetchCalendars(selectedId = null) {
+            if (!gapiInited) return false;
+            try {
+                const response = await gapi.client.calendar.calendarList.list();
+                const calendars = response.result.items;
+                calendarSelect.innerHTML = '';
+                if (calendars) {
+                    calendars.forEach(cal => {
+                        const option = document.createElement('option');
+                        option.value = cal.id;
+                        option.textContent = cal.summary + (cal.primary ? ' (Primary)' : '');
+                        if (selectedId && cal.id === selectedId) option.selected = true;
+                        else if (!selectedId && cal.primary) option.selected = true;
+                        calendarSelect.appendChild(option);
+                    });
+                }
+                const createOption = document.createElement('option');
+                createOption.value = "CREATE_NEW";
+                createOption.textContent = "+ Create New Calendar...";
+                calendarSelect.appendChild(createOption);
+            } catch (e) { console.error(e); }
+        }
+
+        calendarSelect.onchange = () => {
+            if (calendarSelect.value === "CREATE_NEW") {
+                calModal.classList.remove('hidden');
+                newCalNameInput.focus();
+            }
+        };
+
+        function closeCalModal() {
+            calModal.classList.add('hidden');
+            newCalNameInput.value = '';
+            if (calendarSelect.value === "CREATE_NEW") calendarSelect.selectedIndex = 0;
+        }
+
+        createCalConfirm.onclick = async () => {
+            const name = newCalNameInput.value.trim();
+            if (!name) return;
+            try {
+                const resp = await gapi.client.calendar.calendars.insert({ resource: { summary: name } });
+                await fetchCalendars(resp.result.id);
+                closeCalModal();
+            } catch (err) { showModal('Error', 'Could not create calendar.', '❌'); }
+        };
+
+        authBtn.onclick = () => tokenClient.requestAccessToken();
+
+        fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            processing.classList.remove('hidden');
+            resultsSection.classList.add('hidden');
+            try {
+                const result = await Tesseract.recognize(file, 'eng');
+                extractData(result.data.text);
+            } catch (err) {
+                showModal('Error', 'Reading failed.', '❌');
+            } finally { processing.classList.add('hidden'); }
+        };
+
+        function extractData(text) {
+            detectedTrips = [];
+            const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 10);
+            
+            const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})/;
+            const timeRegex = /(\d{2}:\d{2})/;
+            const flightRegex = /(MH\s?\d+)/;
+            const airportRegex = /\b([A-Z]{3})\b/g;
+
+            // 1. Gather all flight sectors
+            const sectors = [];
+            rawLines.forEach((line, index) => {
+                const dateMatch = line.match(dateRegex);
+                const flightMatch = line.match(flightRegex);
+                if (dateMatch && flightMatch) {
+                    const airports = (line.match(airportRegex) || []).filter(code => !EXCLUDE_CODES.includes(code.toUpperCase()));
+                    const times = line.match(new RegExp(timeRegex, 'g')) || [];
+                    if (airports.length >= 2 && times.length > 0) {
+                        sectors.push({
+                            date: dateMatch[0],
+                            flight: flightMatch[0],
+                            origin: airports[0],
+                            dest: airports[1],
+                            reporting: times[0],
+                            dt: new Date(`${dateMatch[0]} ${times[0]}`),
+                            line: line
+                        });
+                    }
+                }
+            });
+
+            // 2. Sort chronologically
+            sectors.sort((a, b) => a.dt - b.dt);
+
+            // 3. Group into sequences starting from KUL
+            let i = 0;
+            while (i < sectors.length) {
+                if (sectors[i].origin === 'KUL') {
+                    const startSector = sectors[i];
+                    const tripSectors = [startSector];
+                    let j = i + 1;
+                    
+                    // Look for the end of this sequence (next KUL arrival that signals end of duty sequence)
+                    while (j < sectors.length) {
+                        const next = sectors[j];
+                        tripSectors.push(next);
+                        
+                        // User Logic: End sequence if back at KUL and the NEXT flight is on a different day
+                        if (next.dest === 'KUL') {
+                            const nextS = sectors[j+1];
+                            const sameDayNext = nextS && nextS.date === next.date;
+                            if (!sameDayNext) break;
+                        }
+                        j++;
+                    }
+
+                    // Format Route: KUL / XXX / KUL
+                    const routeArr = ['KUL'];
+                    tripSectors.forEach(s => {
+                        if (s.dest !== routeArr[routeArr.length - 1]) routeArr.push(s.dest);
+                    });
+                    const fullRoute = routeArr.join(' / ');
+
+                    // Calculate Duration
+                    const endSector = tripSectors[tripSectors.length - 1];
+                    const days = Math.round((new Date(endSector.date) - new Date(startSector.date)) / (1000 * 3600 * 24)) + 1;
+                    const tripLabel = days > 1 ? `(${days} Days Trip)` : "(Daily Flight)";
+
+                    const reminder = new Date(startSector.dt.getTime() - (3 * 3600000));
+
+                    detectedTrips.push({
+                        key: `${startSector.date}-${startSector.flight}`,
+                        title: `${startSector.flight} (Reporting: ${startSector.reporting})`,
+                        route: fullRoute,
+                        type: tripLabel,
+                        date: startSector.date,
+                        start: reminder,
+                        startTimeStr: startSector.reporting
+                    });
+                    i = j + 1; // Move pointer past the end of this sequence
+                } else {
+                    i++;
+                }
+            }
+
+            if (detectedTrips.length > 0) renderList();
+            else showModal('No Trips Found', 'Ensure the roster shows routes starting with KUL.', '🔍');
+        }
+
+        function removeTrip(key) {
+            detectedTrips = detectedTrips.filter(t => t.key !== key);
+            if (detectedTrips.length === 0) resultsSection.classList.add('hidden');
+            else renderList();
+        }
+
+        function renderList() {
+            tripsList.innerHTML = '';
+            detectedTrips.forEach(trip => {
+                const item = document.createElement('div');
+                item.className = "p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex justify-between items-center shadow-sm relative";
+                item.innerHTML = `
+                    <div class="space-y-1 pr-8 text-left">
+                        <div class="font-bold text-emerald-900 leading-tight">${trip.title}</div>
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <div class="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.route}</div>
+                            <span class="text-[9px] font-bold text-emerald-500 italic">${trip.type}</span>
+                        </div>
+                        <div class="text-xs text-slate-500 font-medium pt-1">${trip.date}</div>
+                    </div>
+                    <div class="text-right ml-2 shrink-0 pr-8">
+                        <div class="text-[10px] text-slate-400 font-bold uppercase">Reminder</div>
+                        <div class="text-sm font-black text-slate-900">${trip.start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    </div>
+                    <button onclick="removeTrip('${trip.key}')" class="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-red-500">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                `;
+                tripsList.appendChild(item);
+            });
+            resultsSection.classList.remove('hidden');
+            syncBtn.innerText = `Add ${detectedTrips.length} Reminder${detectedTrips.length !== 1 ? 's' : ''}`;
+        }
+
+        syncBtn.onclick = async () => {
+            const calId = calendarSelect.value;
+            if (!calId || calId === "CREATE_NEW") return;
+            syncBtn.disabled = true; syncBtn.innerText = "Syncing...";
+            try {
+                for (const trip of detectedTrips) {
+                    const start = trip.start.toISOString();
+                    const end = new Date(trip.start.getTime() + 3 * 3600000).toISOString();
+                    await gapi.client.calendar.events.insert({
+                        calendarId: calId,
+                        resource: {
+                            summary: trip.title,
+                            description: `Route: ${trip.route}\n${trip.date}\nType: ${trip.type}`,
+                            start: { dateTime: start },
+                            end: { dateTime: end },
+                            reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] }
+                        }
+                    });
+                }
+                showModal('Synced!', `${detectedTrips.length} trips added to Calendar.`, '✅');
+                resultsSection.classList.add('hidden');
+            } catch (err) { showModal('Sync Failed', 'API error.', '❌'); }
+            finally { syncBtn.disabled = false; syncBtn.innerText = "Add Reminders"; }
+        };
+
+        function showModal(title, msg, icon) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-msg').innerText = msg;
+            document.getElementById('modal-icon').innerText = icon;
+            document.getElementById('modal').classList.remove('hidden');
+        }
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+        window.onload = () => {
+            const g1 = document.createElement('script'); g1.src = "https://apis.google.com/js/api.js"; g1.onload = gapiLoaded; document.head.appendChild(g1);
+            const g2 = document.createElement('script'); g2.src = "https://accounts.google.com/gsi/client"; g2.onload = gisLoaded; document.head.appendChild(g2);
+        };
+    </script>
+</body>
+</html>
             <div id="processing" class="hidden mt-4 p-3 bg-emerald-50 rounded-lg flex items-center justify-center gap-3 text-emerald-700 font-medium text-sm">
                 <div class="loader"></div>
                 Analyzing Trip Structure...
@@ -443,3 +766,4 @@
     </script>
 </body>
 </html>
+
