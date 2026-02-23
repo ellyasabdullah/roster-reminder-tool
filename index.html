@@ -65,14 +65,14 @@
                 <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
                     <svg class="w-8 h-8 mb-2 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                     <p class="text-sm text-slate-500 font-medium font-bold">Upload Monthly Roster Screenshot</p>
-                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Filtered for KUL origin trips</p>
+                    <p class="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">Identifies first sectors of trips/daily flights</p>
                 </div>
                 <input id="file-input" type="file" accept="image/*" class="hidden" />
             </label>
 
             <div id="processing" class="hidden mt-4 p-3 bg-emerald-50 rounded-lg flex items-center justify-center gap-3 text-emerald-700 font-medium text-sm">
                 <div class="loader"></div>
-                Analyzing your trips...
+                Analyzing Trip Structure...
             </div>
         </section>
 
@@ -255,67 +255,102 @@
 
         function extractData(text) {
             detectedTrips = [];
-            const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 10);
+            const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 10);
             
             const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})/;
             const timeRegex = /(\d{2}:\d{2})/;
             const flightRegex = /(MH\s?\d+)/;
             const airportRegex = /\b([A-Z]{3})\b/g;
 
-            lines.forEach((line, index) => {
+            // Step 1: Parse all valid sectors into objects
+            const allSectors = [];
+            rawLines.forEach((line, index) => {
                 const dateMatch = line.match(dateRegex);
                 const flightMatch = line.match(flightRegex);
-                
                 if (dateMatch && flightMatch) {
-                    const dateStr = dateMatch[0];
-                    const flight = flightMatch[0];
+                    const airports = (line.match(airportRegex) || []).filter(code => !EXCLUDE_CODES.includes(code.toUpperCase()));
                     const times = line.match(new RegExp(timeRegex, 'g')) || [];
-                    let airports = (line.match(airportRegex) || []).filter(code => !EXCLUDE_CODES.includes(code.toUpperCase()));
-
-                    // Robust Check: Check if line contains KUL anywhere to help with OCR alignment
-                    const hasKUL = airports.includes('KUL');
-
-                    if (hasKUL && times.length > 0) {
-                        const reportingTime = times[0];
-                        const dest = airports.find(a => a !== 'KUL') || "???";
-                        
-                        let routePorts = ['KUL', dest];
-                        for (let i = 1; i <= 3; i++) {
-                            const nextLine = lines[index + i];
-                            if (!nextLine) break;
-                            const nextAirports = (nextLine.match(airportRegex) || []).filter(code => !EXCLUDE_CODES.includes(code.toUpperCase()));
-                            const nextFlight = nextLine.match(flightRegex);
-                            if (nextAirports.includes('KUL')) {
-                                if (!routePorts.includes('KUL', 1)) routePorts.push('KUL');
-                                break;
-                            } else if (nextFlight && nextAirports.length > 1) {
-                                const lastPort = nextAirports[nextAirports.length - 1];
-                                if (!routePorts.includes(lastPort)) routePorts.push(lastPort);
-                            }
-                        }
-
-                        const routeStr = routePorts.join(' / ');
-                        const dutyTime = new Date(`${dateStr} ${reportingTime}`);
-
-                        if (!isNaN(dutyTime.getTime())) {
-                            const reminderTime = new Date(dutyTime.getTime() - (3 * 60 * 60 * 1000));
-                            const key = `${dateStr}-${flight}-${index}`;
-                            
-                            if (!detectedTrips.find(t => t.key === key)) {
-                                detectedTrips.push({
-                                    key: key,
-                                    taskTitle: `${flight} (Reporting: ${reportingTime})`,
-                                    displayRoute: routeStr,
-                                    date: dateStr,
-                                    original: dutyTime,
-                                    reminder: reminderTime,
-                                    startTime: reportingTime
-                                });
-                            }
-                        }
+                    if (airports.length >= 2 && times.length > 0) {
+                        const dutyTime = new Date(`${dateMatch[0]} ${times[0]}`);
+                        allSectors.push({
+                            dateStr: dateMatch[0],
+                            flight: flightMatch[0],
+                            origin: airports[0],
+                            dest: airports[1],
+                            reportingTime: times[0],
+                            dutyTime: dutyTime,
+                            allAirportsOnLine: airports,
+                            rawLine: line
+                        });
                     }
                 }
             });
+
+            // Step 2: Sort chronologically
+            allSectors.sort((a, b) => a.dutyTime - b.dutyTime);
+
+            // Step 3: Analyze trips and daily flights
+            let i = 0;
+            while (i < allSectors.length) {
+                const startSector = allSectors[i];
+                
+                // Only start a reminder if the duty originated at KUL
+                if (startSector.origin === 'KUL') {
+                    const currentTripSectors = [startSector];
+                    let lastDest = startSector.dest;
+                    let lastArrivalDateStr = startSector.dateStr;
+                    let j = i + 1;
+
+                    // Group subsequent sectors until back at KUL and staying past that day
+                    while (j < allSectors.length) {
+                        const nextSector = allSectors[j];
+                        currentTripSectors.push(nextSector);
+                        lastDest = nextSector.dest;
+
+                        // Check if this sector terminates the TRIP or DAILY FLIGHT sequence
+                        // Sequence ends if we are back at KUL AND the next flight is on a different day
+                        if (nextSector.dest === 'KUL') {
+                            const nextFlightExists = allSectors[j+1];
+                            const isSameDayNextFlight = nextFlightExists && nextFlightExists.dateStr === nextSector.dateStr;
+                            
+                            if (!isSameDayNextFlight) {
+                                // Trip/Daily pattern finished
+                                break;
+                            }
+                        }
+                        j++;
+                    }
+
+                    // Format the display info for the "First Sector" reminder
+                    const fullRouteArr = ['KUL'];
+                    currentTripSectors.forEach(s => {
+                        if (s.dest !== fullRouteArr[fullRouteArr.length - 1]) {
+                            fullRouteArr.push(s.dest);
+                        }
+                    });
+
+                    const durationDays = Math.ceil((currentTripSectors[currentTripSectors.length-1].dutyTime - startSector.dutyTime) / (1000 * 60 * 60 * 24)) + 1;
+                    const tripLabel = durationDays > 1 ? `${durationDays} days trip` : "Daily Flight";
+                    const routeStr = fullRouteArr.join(' / ');
+
+                    const reminderTime = new Date(startSector.dutyTime.getTime() - (3 * 60 * 60 * 1000));
+                    
+                    detectedTrips.push({
+                        key: `${startSector.dateStr}-${startSector.flight}`,
+                        taskTitle: `${startSector.flight} (Reporting: ${startSector.reportingTime})`,
+                        displayRoute: routeStr,
+                        tripInfo: tripLabel,
+                        date: startSector.dateStr,
+                        original: startSector.dutyTime,
+                        reminder: reminderTime,
+                        startTime: startSector.reportingTime
+                    });
+
+                    i = j + 1; // Move pointer to next sequence
+                } else {
+                    i++;
+                }
+            }
 
             if (detectedTrips.length > 0) renderList();
             else showModal('No Trips Found', 'Ensure the roster shows reporting times and routes starting with KUL.', '🔍');
@@ -335,7 +370,10 @@
                 item.innerHTML = `
                     <div class="space-y-1 pr-8 text-left">
                         <div class="font-bold text-emerald-900 leading-tight">${trip.taskTitle}</div>
-                        <div class="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.displayRoute}</div>
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <div class="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.displayRoute}</div>
+                            <span class="text-[9px] font-bold text-emerald-500 bg-white border border-emerald-200 px-1.5 py-0.5 rounded italic">${trip.tripInfo}</span>
+                        </div>
                         <div class="text-xs text-slate-500 font-medium pt-1">${trip.date}</div>
                     </div>
                     <div class="text-right ml-2 shrink-0 pr-8">
@@ -361,14 +399,13 @@
             try {
                 for (const trip of detectedTrips) {
                     const startDateTime = trip.reminder.toISOString();
-                    // SET DURATION TO 3 HOURS: 3 * 60 * 60 * 1000 milliseconds
                     const endDateTime = new Date(trip.reminder.getTime() + 3 * 3600000).toISOString();
                     
                     await gapi.client.calendar.events.insert({
                         calendarId: calId,
                         resource: {
                             summary: trip.taskTitle,
-                            description: `Route: ${trip.displayRoute}\n${trip.date}`,
+                            description: `Route: ${trip.displayRoute}\n${trip.date}\nType: ${trip.tripInfo}`,
                             start: { dateTime: startDateTime },
                             end: { dateTime: endDateTime },
                             reminders: {
