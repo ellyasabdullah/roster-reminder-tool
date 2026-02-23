@@ -91,6 +91,18 @@
         </section>
     </main>
 
+    <!-- Modal for New Calendar -->
+    <div id="cal-modal" class="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm hidden">
+        <div class="bg-white rounded-3xl p-6 max-w-xs w-full shadow-2xl">
+            <h3 class="text-lg font-bold mb-4">New Calendar</h3>
+            <input id="new-cal-name" type="text" placeholder="e.g. Flights 2026" class="w-full p-3 border border-slate-200 rounded-xl mb-4 focus:ring-2 focus:ring-emerald-500 outline-none">
+            <div class="flex gap-2">
+                <button onclick="closeCalModal()" class="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl">Cancel</button>
+                <button id="create-cal-confirm" class="flex-1 bg-emerald-600 text-white font-bold py-3 rounded-xl">Create</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Success/Error Modal -->
     <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm hidden">
         <div class="bg-white rounded-3xl p-8 max-w-xs w-full text-center shadow-2xl">
@@ -103,7 +115,7 @@
 
     <script>
         const CLIENT_ID = '692805772462-uka3qj57pqklh4el8gm4lrejju0q6t0q.apps.googleusercontent.com';
-        const SCOPES = 'https://www.googleapis.com/auth/calendar.events';
+        const SCOPES = 'https://www.googleapis.com/auth/calendar';
         const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"];
 
         let tokenClient;
@@ -120,6 +132,9 @@
         const resultsSection = document.getElementById('results-section');
         const tripsList = document.getElementById('trips-list');
         const syncBtn = document.getElementById('sync-btn');
+        const calModal = document.getElementById('cal-modal');
+        const newCalNameInput = document.getElementById('new-cal-name');
+        const createCalConfirm = document.getElementById('create-cal-confirm');
 
         const EXCLUDE_CODES = [
             'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
@@ -159,39 +174,64 @@
             authBtn.classList.add('hidden');
             listSelectorContainer.classList.remove('hidden');
             uploadSection.classList.remove('opacity-50', 'pointer-events-none');
-            
-            let retries = 3;
-            while(retries > 0) {
-                const success = await fetchCalendars();
-                if (success) break;
-                retries--;
-                await new Promise(r => setTimeout(r, 1000));
-            }
+            await fetchCalendars();
         }
 
-        async function fetchCalendars() {
+        async function fetchCalendars(selectedId = null) {
             if (!gapiInited) return false;
             try {
                 const response = await gapi.client.calendar.calendarList.list();
                 const calendars = response.result.items;
                 
+                calendarSelect.innerHTML = '';
                 if (calendars && calendars.length > 0) {
-                    calendarSelect.innerHTML = '';
                     calendars.forEach(cal => {
                         const option = document.createElement('option');
                         option.value = cal.id;
                         option.textContent = cal.summary + (cal.primary ? ' (Primary)' : '');
-                        if (cal.primary) option.selected = true;
+                        if (selectedId && cal.id === selectedId) option.selected = true;
+                        else if (!selectedId && cal.primary) option.selected = true;
                         calendarSelect.appendChild(option);
                     });
-                    return true;
                 }
+                const createOption = document.createElement('option');
+                createOption.value = "CREATE_NEW";
+                createOption.textContent = "+ Create New Calendar...";
+                calendarSelect.appendChild(createOption);
+                return true;
             } catch (e) {
                 console.error("Error fetching calendars", e);
                 calendarSelect.innerHTML = '<option value="primary">Primary Calendar</option>';
             }
             return false;
         }
+
+        calendarSelect.onchange = () => {
+            if (calendarSelect.value === "CREATE_NEW") {
+                calModal.classList.remove('hidden');
+                newCalNameInput.focus();
+            }
+        };
+
+        function closeCalModal() {
+            calModal.classList.add('hidden');
+            newCalNameInput.value = '';
+            if (calendarSelect.value === "CREATE_NEW") calendarSelect.selectedIndex = 0;
+        }
+
+        createCalConfirm.onclick = async () => {
+            const name = newCalNameInput.value.trim();
+            if (!name) return;
+            try {
+                const resp = await gapi.client.calendar.calendars.insert({
+                    resource: { summary: name }
+                });
+                await fetchCalendars(resp.result.id);
+                closeCalModal();
+            } catch (err) {
+                showModal('Error', 'Could not create calendar.', '❌');
+            }
+        };
 
         authBtn.onclick = () => {
             if (!tokenClient) return;
@@ -251,7 +291,7 @@
                             }
                         }
 
-                        const routeStr = `(${routePorts.join('/')})`;
+                        const routeStr = routePorts.join(' / ');
                         const dutyTime = new Date(`${dateStr} ${reportingTime}`);
 
                         if (!isNaN(dutyTime.getTime())) {
@@ -261,7 +301,7 @@
                             if (!detectedTrips.find(t => t.key === key)) {
                                 detectedTrips.push({
                                     key: key,
-                                    taskTitle: `Prep for ${flight} (Reporting: ${reportingTime})`,
+                                    taskTitle: `${flight} (Reporting: ${reportingTime})`,
                                     displayRoute: routeStr,
                                     date: dateStr,
                                     original: dutyTime,
@@ -312,7 +352,7 @@
 
         syncBtn.onclick = async () => {
             const calId = calendarSelect.value;
-            if (!calId) return;
+            if (!calId || calId === "CREATE_NEW") return;
             syncBtn.disabled = true;
             syncBtn.innerText = "Syncing...";
             try {
@@ -324,14 +364,12 @@
                         calendarId: calId,
                         resource: {
                             summary: trip.taskTitle,
-                            description: `Route: ${trip.displayRoute}\nReporting at ${trip.startTime} on ${trip.date}.`,
+                            description: `Route: ${trip.displayRoute}\n${trip.date}`,
                             start: { dateTime: startDateTime },
                             end: { dateTime: endDateTime },
                             reminders: {
                                 useDefault: false,
-                                overrides: [
-                                    { method: 'popup', minutes: 0 }
-                                ]
+                                overrides: [{ method: 'popup', minutes: 0 }]
                             }
                         }
                     });
@@ -341,7 +379,7 @@
                 fileInput.value = '';
             } catch (err) {
                 console.error(err);
-                showModal('Sync Failed', 'Connection error. Ensure Calendar API is enabled.', '❌');
+                showModal('Sync Failed', 'Connection error.', '❌');
             } finally {
                 syncBtn.disabled = false;
                 syncBtn.innerText = "Add Reminders";
