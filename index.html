@@ -72,7 +72,7 @@
 
             <div id="processing" class="hidden mt-4 p-3 bg-emerald-50 rounded-lg flex items-center justify-center gap-3 text-emerald-700 font-medium text-sm">
                 <div class="loader"></div>
-                Analyzing Trip Patterns...
+                Analyzing Flights...
             </div>
         </section>
 
@@ -216,26 +216,24 @@
             const file = e.target.files[0];
             if (!file) return;
 
-            // CACHE CLEARING: Reset UI and internal state before new processing
+            // CACHE CLEARING
             detectedTrips = [];
             tripsList.innerHTML = '';
             resultsSection.classList.add('hidden');
             processing.classList.remove('hidden');
 
             try {
-                // We add a timestamp to the Tesseract call to prevent caching issues
                 const result = await Tesseract.recognize(file, 'eng');
                 extractData(result.data.text);
             } catch (err) {
                 showModal('Error', 'Reading failed. Check image clarity.', '❌');
             } finally { 
                 processing.classList.add('hidden'); 
-                fileInput.value = ''; // Reset file input so same file can be re-uploaded
+                fileInput.value = ''; 
             }
         };
 
         function extractData(text) {
-            // Internal Reset
             detectedTrips = [];
             const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 10);
             const dateRegex = /(\d{2}-[A-Z]{3}-\d{4})/;
@@ -243,81 +241,44 @@
             const flightRegex = /(MH\s?\d+)/;
             const airportRegex = /\b([A-Z]{3})\b/g;
 
-            // 1. Parse all sectors
-            let allSectors = [];
-            rawLines.forEach((line) => {
+            rawLines.forEach((line, index) => {
                 const dateMatch = line.match(dateRegex);
                 const flightMatch = line.match(flightRegex);
                 const times = line.match(new RegExp(timeRegex, 'g'));
                 const ports = (line.match(airportRegex) || []).filter(c => !EXCLUDE_CODES.includes(c.toUpperCase()));
                 
                 if (dateMatch && flightMatch && times && ports.length >= 2) {
-                    allSectors.push({
-                        date: dateMatch[0],
-                        flight: flightMatch[0],
-                        origin: ports[0],
-                        dest: ports[1],
-                        reporting: times[0],
-                        dt: new Date(`${dateMatch[0]} ${times[0]}`)
-                    });
+                    const origin = ports[0];
+                    const destination = ports[1];
+
+                    // Simple logic: Reverted to individual KUL departures
+                    if (origin === 'KUL') {
+                        const reportingTime = times[0];
+                        const dateStr = dateMatch[0];
+                        const flight = flightMatch[0];
+                        const dutyTime = new Date(`${dateStr} ${reportingTime}`);
+
+                        if (!isNaN(dutyTime.getTime())) {
+                            const reminderStart = new Date(dutyTime.getTime() - (3 * 3600000));
+                            
+                            // Try to build a full route if possible from the current line
+                            const fullRoute = ports.join(' / ');
+
+                            detectedTrips.push({
+                                key: `${dateStr}-${flight}-${index}`,
+                                title: `${flight} (Reporting: ${reportingTime})`,
+                                route: fullRoute,
+                                date: dateStr,
+                                start: reminderStart,
+                                end: dutyTime
+                            });
+                        }
+                    }
                 }
             });
 
-            // 2. Sort timeline
-            allSectors.sort((a, b) => a.dt - b.dt);
-
-            // 3. Sequential Grouping Logic
-            let i = 0;
-            while (i < allSectors.length) {
-                if (allSectors[i].origin === 'KUL') {
-                    const startSector = allSectors[i];
-                    let currentSequence = [startSector];
-                    let j = i + 1;
-
-                    while (j < allSectors.length) {
-                        const s = allSectors[j];
-                        currentSequence.push(s);
-
-                        if (s.dest === 'KUL') {
-                            const nextS = allSectors[j+1];
-                            const sameDayNext = nextS && nextS.date === s.date;
-                            if (!sameDayNext) break;
-                        }
-                        j++;
-                    }
-
-                    const lastSector = currentSequence[currentSequence.length - 1];
-                    // Calculating day difference correctly
-                    const d1 = new Date(startSector.date.split('-').reverse().join('-'));
-                    const d2 = new Date(lastSector.date.split('-').reverse().join('-'));
-                    const diffDays = Math.round(Math.abs(d2 - d1) / (1000 * 3600 * 24)) + 1;
-
-                    let routeNodes = [startSector.origin];
-                    currentSequence.forEach(s => {
-                        if (s.dest !== routeNodes[routeNodes.length - 1]) routeNodes.push(s.dest);
-                    });
-
-                    const typeLabel = diffDays > 1 ? `(${diffDays} Days Trip)` : "(Daily Flight)";
-                    const reminderStart = new Date(startSector.dt.getTime() - (3 * 3600000));
-
-                    detectedTrips.push({
-                        key: `${startSector.date}-${startSector.flight}-${i}`,
-                        title: `${startSector.flight} (Reporting: ${startSector.reporting})`,
-                        route: routeNodes.join(' / '),
-                        type: typeLabel,
-                        date: startSector.date,
-                        start: reminderStart,
-                        end: startSector.dt
-                    });
-
-                    i = j + 1;
-                } else {
-                    i++;
-                }
-            }
-
             if (detectedTrips.length > 0) renderList();
-            else showModal('No Trips Found', 'Ensure the roster shows routes starting with KUL clearly.', '🔍');
+            else showModal('No Trips Found', 'Ensure roster shows flights leaving KUL clearly.', '🔍');
         }
 
         function removeTrip(key) {
@@ -334,10 +295,7 @@
                 item.innerHTML = `
                     <div class="space-y-1 pr-10 text-left">
                         <div class="font-bold text-emerald-900 leading-tight">${trip.title}</div>
-                        <div class="flex flex-wrap gap-2 items-center">
-                            <div class="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.route}</div>
-                            <span class="text-[9px] font-bold text-emerald-500 italic">${trip.type}</span>
-                        </div>
+                        <div class="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.route}</div>
                         <div class="text-xs text-slate-500 font-medium pt-1">${trip.date}</div>
                     </div>
                     <div class="text-right shrink-0 pr-8">
@@ -351,7 +309,7 @@
                 tripsList.appendChild(item);
             });
             resultsSection.classList.remove('hidden');
-            syncBtn.innerText = `Add ${detectedTrips.length} Sequence${detectedTrips.length !== 1 ? 's' : ''}`;
+            syncBtn.innerText = `Add ${detectedTrips.length} Reminder${detectedTrips.length !== 1 ? 's' : ''}`;
         }
 
         syncBtn.onclick = async () => {
@@ -371,13 +329,12 @@
                         }
                     });
                 }
-                showModal('Synced!', `${detectedTrips.length} sequences added.`, '✅');
+                showModal('Synced!', `${detectedTrips.length} reminders added to Calendar.`, '✅');
                 resultsSection.classList.add('hidden');
             } catch (err) { showModal('Sync Failed', 'Connection error.', '❌'); }
             finally { 
                 syncBtn.disabled = false; 
                 syncBtn.innerText = "Add Reminders";
-                fileInput.value = ''; // Final clear
             }
         };
 
