@@ -247,7 +247,7 @@
                 const result = await Tesseract.recognize(file, 'eng');
                 extractData(result.data.text);
             } catch (err) {
-                showModal('Error', 'Reading failed.', '❌');
+                showModal('Error', 'Reading failed. Try a clearer screenshot.', '❌');
             } finally {
                 processing.classList.add('hidden');
             }
@@ -272,9 +272,12 @@
                     const times = line.match(new RegExp(timeRegex, 'g')) || [];
                     let airports = (line.match(airportRegex) || []).filter(code => !EXCLUDE_CODES.includes(code.toUpperCase()));
 
-                    if (airports[0] === 'KUL' && times.length > 0) {
+                    // Robust Check: Check if line contains KUL anywhere to help with OCR alignment
+                    const hasKUL = airports.includes('KUL');
+
+                    if (hasKUL && times.length > 0) {
                         const reportingTime = times[0];
-                        const dest = airports[1] || "???";
+                        const dest = airports.find(a => a !== 'KUL') || "???";
                         
                         let routePorts = ['KUL', dest];
                         for (let i = 1; i <= 3; i++) {
@@ -358,7 +361,8 @@
             try {
                 for (const trip of detectedTrips) {
                     const startDateTime = trip.reminder.toISOString();
-                    const endDateTime = new Date(trip.reminder.getTime() + 30 * 60000).toISOString();
+                    // SET DURATION TO 3 HOURS: 3 * 60 * 60 * 1000 milliseconds
+                    const endDateTime = new Date(trip.reminder.getTime() + 3 * 3600000).toISOString();
                     
                     await gapi.client.calendar.events.insert({
                         calendarId: calId,
@@ -402,5 +406,3 @@
     </script>
 </body>
 </html>
-
-
