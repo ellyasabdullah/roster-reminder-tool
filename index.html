@@ -131,8 +131,7 @@
         const newCalNameInput = document.getElementById('new-cal-name');
         const createCalConfirm = document.getElementById('create-cal-confirm');
 
-        // Note: KUA is NOT in exclusions so it is recognized as a valid airport.
-        const EXCLUDE_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN', 'NBA', 'FS', 'OP', 'PS', 'DO', 'D', '333', '332', '73H', 'A330', 'B738', '7M8', '738', 'FLT', 'STBY'];
+        const EXCLUDE_CODES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'NBA', 'FS', 'OP', 'PS', 'DO', 'D', '333', '332', '73H', 'A330', 'B738', '7M8', '738', 'FLT', 'STBY'];
 
         function gapiLoaded() {
             gapi.load('client', async () => {
@@ -214,7 +213,6 @@
             const file = e.target.files[0];
             if (!file) return;
 
-            // Reset cache and UI
             detectedTrips = [];
             tripsList.innerHTML = '';
             resultsSection.classList.add('hidden');
@@ -231,6 +229,22 @@
             }
         };
 
+        function formatDisplayDate(d1Str, d2Str, diffDays) {
+            const m1 = d1Str.split('-')[1];
+            const m1Cap = m1.charAt(0) + m1.slice(1).toLowerCase();
+            const d1 = parseInt(d1Str.split('-')[0]);
+
+            const m2 = d2Str.split('-')[1];
+            const m2Cap = m2.charAt(0) + m2.slice(1).toLowerCase();
+            const d2 = parseInt(d2Str.split('-')[0]);
+
+            if (diffDays > 1) {
+                if (m1 === m2) return `${d1}-${d2} ${m1Cap}`;
+                return `${d1} ${m1Cap} - ${d2} ${m2Cap}`;
+            }
+            return `${d1} ${m1Cap}`;
+        }
+
         function extractData(text) {
             detectedTrips = [];
             const rawLines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
@@ -240,14 +254,11 @@
             const flightRegex = /(MH\s?\d+)/;
             const airportRegex = /\b([A-Z]{3})\b/g;
 
-            // 1. First Pass: Create a clean chronological list of all valid flights
-            let allFlights = [];
+            let allSectors = [];
             let currentDate = null;
 
             for (let i = 0; i < rawLines.length; i++) {
                 let line = rawLines[i];
-                
-                // Track date across lines
                 let dateMatch = line.match(dateRegex);
                 if (dateMatch) currentDate = dateMatch[0];
 
@@ -257,11 +268,8 @@
                     let ports = [];
                     let reportingTime = null;
 
-                    // Gather data from current line and the next 2 lines to catch wrapped data
                     for (let j = i; j <= i + 2 && j < rawLines.length; j++) {
                         let lookLine = rawLines[j];
-                        
-                        // Break if we bleed into the next flight or date
                         if (j > i && (lookLine.match(flightRegex) || lookLine.match(dateRegex))) break;
 
                         if (!reportingTime) {
@@ -274,7 +282,7 @@
                     }
 
                     if (ports.length > 0 && reportingTime) {
-                        allFlights.push({
+                        allSectors.push({
                             date: currentDate,
                             flight: flightNum,
                             ports: ports,
@@ -285,39 +293,31 @@
                 }
             }
 
-            // Clean up missing destinations by looking ahead
-            for (let i = 0; i < allFlights.length; i++) {
-                let f = allFlights[i];
+            for (let i = 0; i < allSectors.length; i++) {
+                let f = allSectors[i];
                 f.origin = f.ports[0];
                 if (f.ports.length > 1) {
                     f.dest = f.ports[1];
                 } else {
-                    f.dest = (allFlights[i+1]) ? allFlights[i+1].ports[0] : 'KUL';
+                    f.dest = (allSectors[i+1]) ? allSectors[i+1].ports[0] : 'KUL';
                 }
             }
 
-            // Ensure chronologically sorted
-            allFlights.sort((a, b) => a.dt - b.dt);
+            allSectors.sort((a, b) => a.dt - b.dt);
 
-            // 2. Second Pass: Group flights according to Trip & Daily Flight rules
             let i = 0;
-            while (i < allFlights.length) {
-                // Sequences only begin at KUL
-                if (allFlights[i].origin === 'KUL') {
-                    let firstFlight = allFlights[i];
+            while (i < allSectors.length) {
+                if (allSectors[i].origin === 'KUL') {
+                    let firstFlight = allSectors[i];
                     let seq = [firstFlight];
                     let j = i + 1;
 
-                    // Continue consuming flights until duty period ends
-                    while (j < allFlights.length) {
-                        let currentFlight = allFlights[j];
+                    while (j < allSectors.length) {
+                        let currentFlight = allSectors[j];
                         seq.push(currentFlight);
 
-                        // If we returned to KUL, check if the duty continues on the same day
                         if (currentFlight.dest === 'KUL') {
-                            let nextFlight = allFlights[j+1];
-                            
-                            // Break the loop if there are no more flights OR the next flight is on a DIFFERENT day
+                            let nextFlight = allSectors[j+1];
                             if (!nextFlight || nextFlight.date !== currentFlight.date) {
                                 break;
                             }
@@ -326,33 +326,32 @@
                     }
 
                     let lastFlight = seq[seq.length - 1];
-                    
-                    // Build unique route array (KUL / A / B / KUL)
                     let routeNodes = [firstFlight.origin];
                     seq.forEach(s => {
                         if (s.dest !== routeNodes[routeNodes.length - 1]) routeNodes.push(s.dest);
                     });
 
-                    // Calculate Duration Difference
                     let d1 = new Date(firstFlight.date.replace(/-/g, ' '));
                     let d2 = new Date(lastFlight.date.replace(/-/g, ' '));
                     let diffDays = Math.round(Math.abs((d2 - d1) / (1000 * 3600 * 24))) + 1;
 
                     let typeLabel = diffDays > 1 ? `(${diffDays} Days Trip)` : "(Daily Flight)";
-                    
+                    let formattedDate = formatDisplayDate(firstFlight.date, lastFlight.date, diffDays);
+                    let displayRouteString = `${routeNodes.join(' / ')} ${typeLabel} ${formattedDate}`;
+
                     detectedTrips.push({
                         key: `${firstFlight.date}-${firstFlight.flight}-${i}`,
                         title: `${firstFlight.flight} (Reporting: ${firstFlight.time})`,
                         route: routeNodes.join(' / '),
-                        type: typeLabel,
-                        date: firstFlight.date,
-                        start: new Date(firstFlight.dt.getTime() - (3 * 3600000)), // 3h prior
-                        end: firstFlight.dt // Ends at reporting time
+                        displayString: displayRouteString, // New specific format requested
+                        dateDisplay: formattedDate,
+                        start: new Date(firstFlight.dt.getTime() - (3 * 3600000)),
+                        end: firstFlight.dt
                     });
 
-                    i = j + 1; // Move past the grouped sequence
+                    i = j + 1;
                 } else {
-                    i++; // Skip sectors starting downroute
+                    i++;
                 }
             }
 
@@ -372,13 +371,11 @@
                 const item = document.createElement('div');
                 item.className = "p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex justify-between items-center shadow-sm relative";
                 item.innerHTML = `
-                    <div class="space-y-1 pr-10 text-left">
+                    <div class="space-y-2 pr-10 text-left w-full">
                         <div class="font-bold text-emerald-900 leading-tight">${trip.title}</div>
-                        <div class="flex flex-wrap gap-2 items-center">
-                            <div class="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded inline-block uppercase tracking-wider">${trip.route}</div>
-                            <span class="text-[9px] font-bold text-emerald-500 italic">${trip.type}</span>
+                        <div class="text-[11px] font-bold text-slate-700 bg-white border border-emerald-200 px-2 py-1 rounded inline-block tracking-wide">
+                            ${trip.displayString}
                         </div>
-                        <div class="text-xs text-slate-500 font-medium pt-1">${trip.date}</div>
                     </div>
                     <div class="text-right shrink-0 pr-8">
                         <div class="text-[10px] text-slate-400 font-bold uppercase">Prep Time</div>
@@ -404,7 +401,7 @@
                         calendarId: calId,
                         resource: {
                             summary: trip.title,
-                            description: `Route: ${trip.route}\n${trip.date}`,
+                            description: `Route: ${trip.route}\n${trip.dateDisplay}`,
                             start: { dateTime: trip.start.toISOString() },
                             end: { dateTime: trip.end.toISOString() },
                             reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 0 }] }
@@ -434,3 +431,5 @@
     </script>
 </body>
 </html>
+
+
